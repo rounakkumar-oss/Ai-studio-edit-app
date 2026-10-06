@@ -1,6 +1,8 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai.AIDirectorEngine
@@ -13,6 +15,8 @@ import com.example.ai.GeneratedImageResult
 import com.example.ai.GeneratedMusicResult
 import com.example.ai.GeneratedVideoResult
 import com.example.ai.GeneratedVoiceResult
+import com.example.audio.AudioEngine
+import com.example.audio.RealTtsEngine
 import com.example.data.local.AppDatabase
 import com.example.data.model.AspectRatioType
 import com.example.data.model.CaptionItem
@@ -28,6 +32,7 @@ import com.example.data.repository.UserPreferences
 import com.example.data.repository.UserPreferencesRepository
 import com.example.updater.GitHubUpdateChecker
 import com.example.updater.ReleaseInfo
+import com.example.util.MediaUtils
 import com.example.video.ExportEngine
 import com.example.video.ExportOptions
 import com.example.video.ExportState
@@ -58,6 +63,7 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     private val prefsRepository = UserPreferencesRepository(db.userPreferencesDao())
     val aiService = GeminiAiService()
     val exportEngine = ExportEngine(application)
+    val ttsEngine = RealTtsEngine(application)
 
     // User preferences from Room
     val userPreferences: StateFlow<UserPreferences> = prefsRepository.userPreferences
@@ -182,6 +188,129 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             val proj = ProjectRepository.createDefaultProject(title, aspect)
             repository.saveProject(proj)
             loadProject(proj.id)
+            _uiEvents.emit(StudioUiEvent.NavigateTo("editor"))
+        }
+    }
+
+    fun createProjectFromMedia(
+        context: Context,
+        videoUris: List<Uri>,
+        photoUris: List<Uri>,
+        audioUris: List<Uri>,
+        projectName: String = "Imported Project"
+    ) {
+        viewModelScope.launch {
+            val videoTrackId = UUID.randomUUID().toString()
+            val audioTrackId = UUID.randomUUID().toString()
+            val textTrackId = UUID.randomUUID().toString()
+
+            val videoClips = mutableListOf<TimelineClip>()
+            var currentVideoStartMs = 0L
+            var detectedAspect = AspectRatioType.PORTRAIT_9_16
+
+            // Process Videos
+            videoUris.forEachIndexed { index, uri ->
+                val preparedUri = MediaUtils.prepareMediaUriForEditing(context, uri)
+                val info = MediaUtils.queryMediaInfo(context, preparedUri)
+                if (index == 0 && info.width > 0 && info.height > 0) {
+                    detectedAspect = if (info.width >= info.height) {
+                        AspectRatioType.LANDSCAPE_16_9
+                    } else {
+                        AspectRatioType.PORTRAIT_9_16
+                    }
+                }
+
+                val clipDur = info.durationMs.coerceAtLeast(1000L)
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = videoTrackId,
+                    title = info.title.ifBlank { "Video Clip ${index + 1}" },
+                    type = TrackType.VIDEO,
+                    startMs = currentVideoStartMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = preparedUri.toString(),
+                    previewColorHex = 0xFF7C4DFF
+                )
+                videoClips.add(clip)
+                currentVideoStartMs += clipDur
+            }
+
+            // Process Photos
+            photoUris.forEachIndexed { index, uri ->
+                val preparedUri = MediaUtils.prepareMediaUriForEditing(context, uri)
+                val info = MediaUtils.queryMediaInfo(context, preparedUri)
+                val clipDur = 3000L
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = videoTrackId,
+                    title = info.title.ifBlank { "Photo ${index + 1}" },
+                    type = TrackType.VIDEO,
+                    startMs = currentVideoStartMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = preparedUri.toString(),
+                    previewColorHex = 0xFF00ADB5
+                )
+                videoClips.add(clip)
+                currentVideoStartMs += clipDur
+            }
+
+            // Process Audios
+            val audioClips = mutableListOf<TimelineClip>()
+            var currentAudioStartMs = 0L
+            audioUris.forEachIndexed { index, uri ->
+                val preparedUri = MediaUtils.prepareMediaUriForEditing(context, uri)
+                val info = MediaUtils.queryMediaInfo(context, preparedUri)
+                val clipDur = info.durationMs.coerceAtLeast(2000L)
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = audioTrackId,
+                    title = info.title.ifBlank { "Audio Track ${index + 1}" },
+                    type = TrackType.AUDIO,
+                    startMs = currentAudioStartMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = preparedUri.toString(),
+                    previewColorHex = 0xFF00E5FF
+                )
+                audioClips.add(clip)
+                currentAudioStartMs += clipDur
+            }
+
+            val tracks = listOf(
+                TimelineTrack(id = videoTrackId, name = "Video Track", type = TrackType.VIDEO, clips = videoClips),
+                TimelineTrack(id = audioTrackId, name = "Audio Track", type = TrackType.AUDIO, clips = audioClips),
+                TimelineTrack(id = textTrackId, name = "Text & Captions", type = TrackType.TEXT, clips = emptyList())
+            )
+
+            val totalDurationMs = maxOf(currentVideoStartMs, currentAudioStartMs).coerceAtLeast(3000L)
+            val resolvedTitle = if (videoClips.isNotEmpty()) {
+                videoClips.first().title.substringBeforeLast(".")
+            } else if (photoUris.isNotEmpty()) {
+                "Photo Story Reel"
+            } else {
+                projectName
+            }
+
+            val newProject = Project(
+                id = UUID.randomUUID().toString(),
+                title = resolvedTitle,
+                aspectRatio = detectedAspect,
+                durationMs = totalDurationMs,
+                tracks = tracks
+            )
+
+            repository.saveProject(newProject)
+            loadProject(newProject.id)
+            val count = videoClips.size + photoUris.size + audioClips.size
+            _uiEvents.emit(StudioUiEvent.ShowToast("Imported $count media file(s)!"))
             _uiEvents.emit(StudioUiEvent.NavigateTo("editor"))
         }
     }
@@ -429,6 +558,344 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
         updateSelectedClip { it.copy(isReversed = !it.isReversed) }
     }
 
+    fun rotateSelectedClip() {
+        updateSelectedClip { clip ->
+            clip.copy(rotation = (clip.rotation + 90f) % 360f)
+        }
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Rotated 90°")) }
+    }
+
+    fun flipSelectedClipHorizontal() {
+        updateSelectedClip { clip ->
+            clip.copy(isFlipHorizontal = !clip.isFlipHorizontal)
+        }
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Flipped horizontal")) }
+    }
+
+    fun flipSelectedClipVertical() {
+        updateSelectedClip { clip ->
+            clip.copy(isFlipVertical = !clip.isFlipVertical)
+        }
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Flipped vertical")) }
+    }
+
+    fun freezeFrameAtPlayhead() {
+        val proj = _activeProject.value ?: return
+        val clipId = _selectedClipId.value ?: return
+        val currentPlayhead = _playheadMs.value
+        pushUndo()
+        val newTracks = proj.tracks.map { track ->
+            val index = track.clips.indexOfFirst { it.id == clipId }
+            if (index != -1) {
+                val clip = track.clips[index]
+                val freezeClip = clip.copy(
+                    id = UUID.randomUUID().toString(),
+                    startMs = currentPlayhead,
+                    durationMs = 3000L,
+                    title = "${clip.title} (Freeze)",
+                    isFrozen = true
+                )
+                val updated = track.clips.toMutableList()
+                updated.add(index + 1, freezeClip)
+                track.copy(clips = updated)
+            } else track
+        }
+        _activeProject.value = proj.copy(tracks = newTracks, durationMs = proj.durationMs + 3000L, updatedAt = System.currentTimeMillis())
+        persistCurrentProject()
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Freeze frame added (3s)")) }
+    }
+
+    fun extractAudioFromSelectedClip() {
+        val proj = _activeProject.value ?: return
+        val clipId = _selectedClipId.value ?: return
+        val clip = proj.tracks.flatMap { it.clips }.find { it.id == clipId } ?: return
+        if (clip.mediaUri == null) {
+            viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Selected clip has no audio source")) }
+            return
+        }
+        pushUndo()
+        var audioTrack = proj.tracks.find { it.type == TrackType.AUDIO }
+        val tracksList = proj.tracks.toMutableList()
+        if (audioTrack == null) {
+            audioTrack = TimelineTrack(name = "Extracted Audio", type = TrackType.AUDIO)
+            tracksList.add(audioTrack)
+        }
+        val extractedClip = TimelineClip(
+            id = UUID.randomUUID().toString(),
+            trackId = audioTrack.id,
+            title = "Audio: ${clip.title}",
+            type = TrackType.AUDIO,
+            startMs = clip.startMs,
+            durationMs = clip.durationMs,
+            sourceDurationMs = clip.sourceDurationMs,
+            trimStartMs = clip.trimStartMs,
+            trimEndMs = clip.trimEndMs,
+            mediaUri = clip.mediaUri,
+            previewColorHex = 0xFF00E5FF
+        )
+        val finalTracks = tracksList.map {
+            if (it.id == audioTrack.id) it.copy(clips = it.clips + extractedClip)
+            else if (it.clips.any { c -> c.id == clipId }) {
+                it.copy(clips = it.clips.map { c -> if (c.id == clipId) c.copy(isMuted = true) else c })
+            } else it
+        }
+        _activeProject.value = proj.copy(tracks = finalTracks, updatedAt = System.currentTimeMillis())
+        persistCurrentProject()
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Extracted audio to dedicated track")) }
+    }
+
+    fun trimSelectedClipToPlayhead(trimLeft: Boolean) {
+        val proj = _activeProject.value ?: return
+        val clipId = _selectedClipId.value ?: return
+        val currentPlayhead = _playheadMs.value
+
+        updateSelectedClip { clip ->
+            if (currentPlayhead > clip.startMs && currentPlayhead < (clip.startMs + clip.durationMs)) {
+                if (trimLeft) {
+                    val delta = currentPlayhead - clip.startMs
+                    val newTrimStart = (clip.trimStartMs + (delta * clip.speed).toLong()).coerceIn(0L, clip.sourceDurationMs - 300L)
+                    val newDur = clip.durationMs - delta
+                    clip.copy(
+                        startMs = currentPlayhead,
+                        durationMs = newDur.coerceAtLeast(300L),
+                        trimStartMs = newTrimStart
+                    )
+                } else {
+                    val newDur = (currentPlayhead - clip.startMs).coerceAtLeast(300L)
+                    val newTrimEnd = clip.trimStartMs + (newDur * clip.speed).toLong()
+                    clip.copy(
+                        durationMs = newDur,
+                        trimEndMs = newTrimEnd.coerceAtMost(clip.sourceDurationMs)
+                    )
+                }
+            } else clip
+        }
+        val label = if (trimLeft) "Trimmed start to playhead" else "Trimmed end to playhead"
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast(label)) }
+    }
+
+    fun trimSelectedClipStart(deltaMs: Long) {
+        updateSelectedClip { clip ->
+            val actualDelta = deltaMs.coerceIn(-clip.startMs, clip.durationMs - 300L)
+            val newTrimStart = (clip.trimStartMs + (actualDelta * clip.speed).toLong()).coerceIn(0L, clip.sourceDurationMs - 300L)
+            val newDur = (clip.durationMs - actualDelta).coerceAtLeast(300L)
+            clip.copy(
+                startMs = clip.startMs + actualDelta,
+                durationMs = newDur,
+                trimStartMs = newTrimStart
+            )
+        }
+    }
+
+    fun trimSelectedClipEnd(deltaMs: Long) {
+        updateSelectedClip { clip ->
+            val newDur = (clip.durationMs + deltaMs).coerceAtLeast(300L)
+            val newTrimEnd = (clip.trimStartMs + (newDur * clip.speed).toLong()).coerceAtMost(clip.sourceDurationMs)
+            clip.copy(
+                durationMs = newDur,
+                trimEndMs = newTrimEnd
+            )
+        }
+    }
+
+    fun resizeSelectedClip(scale: Float) {
+        updateSelectedClip { it.copy(scale = scale.coerceIn(0.2f, 4.0f)) }
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Scale set to ${String.format(java.util.Locale.US, "%.1fx", scale)}")) }
+    }
+
+    fun replaceSelectedClipAudio(audioUri: Uri, title: String) {
+        val proj = _activeProject.value ?: return
+        val clipId = _selectedClipId.value ?: return
+        val clip = proj.tracks.flatMap { it.clips }.find { it.id == clipId } ?: return
+        pushUndo()
+        var audioTrack = proj.tracks.find { it.type == TrackType.AUDIO }
+        val tracksList = proj.tracks.toMutableList()
+        if (audioTrack == null) {
+            audioTrack = TimelineTrack(name = "Replaced Audio", type = TrackType.AUDIO)
+            tracksList.add(audioTrack)
+        }
+        val newAudioClip = TimelineClip(
+            id = UUID.randomUUID().toString(),
+            trackId = audioTrack.id,
+            title = "Audio: $title",
+            type = TrackType.AUDIO,
+            startMs = clip.startMs,
+            durationMs = clip.durationMs,
+            sourceDurationMs = clip.durationMs,
+            mediaUri = audioUri.toString(),
+            previewColorHex = 0xFF00E5FF
+        )
+        val finalTracks = tracksList.map {
+            if (it.id == audioTrack.id) it.copy(clips = it.clips + newAudioClip)
+            else if (it.clips.any { c -> c.id == clipId }) {
+                it.copy(clips = it.clips.map { c -> if (c.id == clipId) c.copy(isMuted = true) else c })
+            } else it
+        }
+        _activeProject.value = proj.copy(tracks = finalTracks, updatedAt = System.currentTimeMillis())
+        persistCurrentProject()
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Replaced audio for '${clip.title}'")) }
+    }
+
+    fun cropSelectedClip(ratio: String) {
+        updateSelectedClip { it.copy(cropRatio = ratio) }
+        viewModelScope.launch { _uiEvents.emit(StudioUiEvent.ShowToast("Crop set to $ratio")) }
+    }
+
+    fun reorderSelectedClip(moveLeft: Boolean) {
+        val proj = _activeProject.value ?: return
+        val clipId = _selectedClipId.value ?: return
+        pushUndo()
+        val newTracks = proj.tracks.map { track ->
+            val index = track.clips.indexOfFirst { it.id == clipId }
+            if (index != -1) {
+                val clips = track.clips.toMutableList()
+                val targetIndex = if (moveLeft) index - 1 else index + 1
+                if (targetIndex in clips.indices) {
+                    val clipA = clips[index]
+                    val clipB = clips[targetIndex]
+                    val startA = clipA.startMs
+                    val startB = clipB.startMs
+                    clips[index] = clipB.copy(startMs = startA)
+                    clips[targetIndex] = clipA.copy(startMs = startB)
+                    track.copy(clips = clips)
+                } else track
+            } else track
+        }
+        _activeProject.value = proj.copy(tracks = newTracks, updatedAt = System.currentTimeMillis())
+        persistCurrentProject()
+    }
+
+    fun addMediaToActiveProject(
+        context: Context,
+        videoUris: List<Uri>,
+        photoUris: List<Uri>,
+        audioUris: List<Uri>
+    ) {
+        val proj = _activeProject.value ?: return
+        viewModelScope.launch {
+            pushUndo()
+            var videoTrack = proj.tracks.find { it.type == TrackType.VIDEO }
+            var audioTrack = proj.tracks.find { it.type == TrackType.AUDIO }
+
+            val updatedTracks = proj.tracks.toMutableList()
+            if (videoTrack == null) {
+                videoTrack = TimelineTrack(name = "Video Track", type = TrackType.VIDEO)
+                updatedTracks.add(videoTrack)
+            }
+            if (audioTrack == null) {
+                audioTrack = TimelineTrack(name = "Audio Track", type = TrackType.AUDIO)
+                updatedTracks.add(audioTrack)
+            }
+
+            var videoEndMs = videoTrack.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
+            val newVideoClips = videoTrack.clips.toMutableList()
+
+            videoUris.forEach { uri ->
+                val info = MediaUtils.queryMediaInfo(context, uri)
+                val clipDur = info.durationMs.coerceAtLeast(1000L)
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = videoTrack.id,
+                    title = info.title,
+                    type = TrackType.VIDEO,
+                    startMs = videoEndMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = uri.toString()
+                )
+                newVideoClips.add(clip)
+                videoEndMs += clipDur
+            }
+
+            photoUris.forEach { uri ->
+                val info = MediaUtils.queryMediaInfo(context, uri)
+                val clipDur = 3000L
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = videoTrack.id,
+                    title = info.title,
+                    type = TrackType.VIDEO,
+                    startMs = videoEndMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = uri.toString()
+                )
+                newVideoClips.add(clip)
+                videoEndMs += clipDur
+            }
+
+            var audioEndMs = audioTrack.clips.maxOfOrNull { it.startMs + it.durationMs } ?: 0L
+            val newAudioClips = audioTrack.clips.toMutableList()
+            audioUris.forEach { uri ->
+                val info = MediaUtils.queryMediaInfo(context, uri)
+                val clipDur = info.durationMs.coerceAtLeast(2000L)
+                val clip = TimelineClip(
+                    id = UUID.randomUUID().toString(),
+                    trackId = audioTrack.id,
+                    title = info.title,
+                    type = TrackType.AUDIO,
+                    startMs = audioEndMs,
+                    durationMs = clipDur,
+                    sourceDurationMs = clipDur,
+                    trimStartMs = 0L,
+                    trimEndMs = clipDur,
+                    mediaUri = uri.toString()
+                )
+                newAudioClips.add(clip)
+                audioEndMs += clipDur
+            }
+
+            val finalTracks = updatedTracks.map {
+                when (it.id) {
+                    videoTrack.id -> it.copy(clips = newVideoClips)
+                    audioTrack.id -> it.copy(clips = newAudioClips)
+                    else -> it
+                }
+            }
+
+            val totalDur = maxOf(videoEndMs, audioEndMs).coerceAtLeast(proj.durationMs)
+            _activeProject.value = proj.copy(tracks = finalTracks, durationMs = totalDur, updatedAt = System.currentTimeMillis())
+            persistCurrentProject()
+            _uiEvents.emit(StudioUiEvent.ShowToast("Added media to timeline"))
+        }
+    }
+
+    fun importMediaAsClip(title: String, uri: Uri, type: TrackType, durationMs: Long) {
+        val proj = _activeProject.value ?: return
+        pushUndo()
+        val track = proj.tracks.find { it.type == type } ?: proj.tracks.first()
+        val start = _playheadMs.value
+        val newClip = TimelineClip(
+            trackId = track.id,
+            title = title,
+            type = type,
+            startMs = start,
+            durationMs = durationMs,
+            sourceDurationMs = durationMs,
+            mediaUri = uri.toString(),
+            previewColorHex = when (type) {
+                TrackType.VIDEO -> 0xFF7C4DFF
+                TrackType.OVERLAY -> 0xFFFFB300
+                TrackType.AUDIO -> 0xFF00E5FF
+                TrackType.TEXT -> 0xFF2ED573
+                TrackType.EFFECT -> 0xFFFF5370
+            }
+        )
+        val updatedTracks = proj.tracks.map {
+            if (it.id == track.id) it.copy(clips = it.clips + newClip) else it
+        }
+        _activeProject.value = proj.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
+        persistCurrentProject()
+        viewModelScope.launch {
+            _uiEvents.emit(StudioUiEvent.ShowToast("Added '$title' to project!"))
+            _uiEvents.emit(StudioUiEvent.NavigateTo("editor"))
+        }
+    }
+
     fun addTrack(type: TrackType, name: String) {
         val proj = _activeProject.value ?: return
         pushUndo()
@@ -637,7 +1104,24 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun generateAiVoice(text: String, voiceName: String, lang: String, speed: Float, pitch: Float) {
         viewModelScope.launch {
             _aiVoiceState.value = AIResult.Loading
-            _aiVoiceState.value = aiService.generateVoice(text, voiceName, lang, speed, pitch)
+            val realResult = ttsEngine.synthesizeSpeechToFile(text, voiceName, lang, speed, pitch)
+            realResult.onSuccess { ttsRes ->
+                _aiVoiceState.value = AIResult.Success(
+                    GeneratedVoiceResult(
+                        voiceId = UUID.randomUUID().toString(),
+                        text = text,
+                        voiceName = voiceName,
+                        language = lang,
+                        audioDurationMs = ttsRes.durationMs,
+                        waveformPoints = List(30) { (Math.sin(it * 0.4).toFloat() * 0.5f + 0.5f).coerceIn(0.1f, 1f) },
+                        audioUri = ttsRes.audioUri.toString()
+                    )
+                )
+                _uiEvents.emit(StudioUiEvent.ShowToast("Synthesized audio file (${ttsRes.durationMs / 1000}s)"))
+            }.onFailure { err ->
+                // Fallback to provider status
+                _aiVoiceState.value = aiService.generateVoice(text, voiceName, lang, speed, pitch)
+            }
         }
     }
 
@@ -653,10 +1137,14 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
 
         val newClip = TimelineClip(
             trackId = audioTrack.id,
-            title = "TTS: ${voice.voiceName}",
+            title = "Voice: ${voice.voiceName}",
             type = TrackType.AUDIO,
             startMs = _playheadMs.value,
             durationMs = voice.audioDurationMs,
+            sourceDurationMs = voice.audioDurationMs,
+            trimStartMs = 0L,
+            trimEndMs = voice.audioDurationMs,
+            mediaUri = voice.audioUri,
             previewColorHex = 0xFF00ADB5
         )
 
@@ -664,10 +1152,11 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             if (it.id == audioTrack.id) it.copy(clips = it.clips + newClip) else it
         }
 
-        _activeProject.value = proj.copy(tracks = updated, updatedAt = System.currentTimeMillis())
+        val maxDur = maxOf(proj.durationMs, _playheadMs.value + voice.audioDurationMs)
+        _activeProject.value = proj.copy(tracks = updated, durationMs = maxDur, updatedAt = System.currentTimeMillis())
         persistCurrentProject()
         viewModelScope.launch {
-            _uiEvents.emit(StudioUiEvent.ShowToast("Imported voiceover track"))
+            _uiEvents.emit(StudioUiEvent.ShowToast("Imported voiceover audio to project!"))
             _uiEvents.emit(StudioUiEvent.NavigateTo("editor"))
         }
     }
@@ -675,7 +1164,29 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
     fun generateAiMusic(prompt: String, genre: String, mood: String, bpm: Int, durationSec: Int) {
         viewModelScope.launch {
             _aiMusicState.value = AIResult.Loading
-            _aiMusicState.value = aiService.generateMusic(prompt, genre, mood, bpm, durationSec)
+            try {
+                val realWavFile = AudioEngine.synthesizeMusicTrackToFile(
+                    context = getApplication<Application>(),
+                    genre = genre,
+                    mood = mood,
+                    bpm = bpm,
+                    durationSeconds = durationSec
+                )
+                val result = GeneratedMusicResult(
+                    musicId = UUID.randomUUID().toString(),
+                    prompt = prompt,
+                    genre = genre,
+                    mood = mood,
+                    bpm = bpm,
+                    durationMs = (durationSec * 1000L),
+                    stemAvailable = true,
+                    audioUri = Uri.fromFile(realWavFile).toString()
+                )
+                _aiMusicState.value = AIResult.Success(result)
+                _uiEvents.emit(StudioUiEvent.ShowToast("Synthesized music track (${durationSec}s)"))
+            } catch (e: Exception) {
+                _aiMusicState.value = aiService.generateMusic(prompt, genre, mood, bpm, durationSec)
+            }
         }
     }
 
@@ -693,8 +1204,12 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             trackId = audioTrack.id,
             title = "${music.genre} (${music.bpm} BPM)",
             type = TrackType.AUDIO,
-            startMs = 0L,
+            startMs = _playheadMs.value,
             durationMs = music.durationMs,
+            sourceDurationMs = music.durationMs,
+            trimStartMs = 0L,
+            trimEndMs = music.durationMs,
+            mediaUri = music.audioUri,
             previewColorHex = 0xFF11998E
         )
 
@@ -702,7 +1217,8 @@ class StudioViewModel(application: Application) : AndroidViewModel(application) 
             if (it.id == audioTrack.id) it.copy(clips = it.clips + newClip) else it
         }
 
-        _activeProject.value = proj.copy(tracks = updated, updatedAt = System.currentTimeMillis())
+        val maxDur = maxOf(proj.durationMs, _playheadMs.value + music.durationMs)
+        _activeProject.value = proj.copy(tracks = updated, durationMs = maxDur, updatedAt = System.currentTimeMillis())
         persistCurrentProject()
         viewModelScope.launch {
             _uiEvents.emit(StudioUiEvent.ShowToast("Imported music into timeline"))

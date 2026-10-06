@@ -238,16 +238,60 @@ fun AIMusicScreen(
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
 
-                                Button(
-                                    onClick = { viewModel.importGeneratedMusicToTimeline(music) },
+                                val context = androidx.compose.ui.platform.LocalContext.current
+                                var previewPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+                                var isPreviewing by remember { mutableStateOf(false) }
+
+                                androidx.compose.runtime.DisposableEffect(Unit) {
+                                    onDispose {
+                                        previewPlayer?.release()
+                                        previewPlayer = null
+                                    }
+                                }
+
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(top = 12.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color.Black, modifier = Modifier.padding(end = 6.dp))
-                                    Text("Add to Project Audio Track", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Button(
+                                        onClick = {
+                                            if (isPreviewing) {
+                                                previewPlayer?.stop()
+                                                previewPlayer?.release()
+                                                previewPlayer = null
+                                                isPreviewing = false
+                                            } else {
+                                                music.audioUri?.let { uriStr ->
+                                                    try {
+                                                        val mp = android.media.MediaPlayer()
+                                                        mp.setDataSource(context, android.net.Uri.parse(uriStr))
+                                                        mp.prepare()
+                                                        mp.setOnCompletionListener { isPreviewing = false }
+                                                        mp.start()
+                                                        previewPlayer = mp
+                                                        isPreviewing = true
+                                                    } catch (_: Exception) {}
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E344D))
+                                    ) {
+                                        Text(if (isPreviewing) "Pause" else "Play", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { viewModel.importGeneratedMusicToTimeline(music) },
+                                        modifier = Modifier.weight(1.8f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                    ) {
+                                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color.Black, modifier = Modifier.padding(end = 6.dp))
+                                        Text("Add to Project", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

@@ -1,5 +1,9 @@
 package com.example.ui.home
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,12 +47,15 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,12 +87,91 @@ data class StudioQuickTool(
     val color: Color
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: StudioViewModel,
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var showImportDialog by remember { mutableStateOf(false) }
+
+    val pickVideosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.createProjectFromMedia(
+                context = context,
+                videoUris = uris,
+                photoUris = emptyList(),
+                audioUris = emptyList(),
+                projectName = "Video Project"
+            )
+            onNavigate("editor")
+        }
+    }
+
+    val pickSingleVideoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.createProjectFromMedia(
+                context = context,
+                videoUris = listOf(uri),
+                photoUris = emptyList(),
+                audioUris = emptyList(),
+                projectName = "Video Project"
+            )
+            onNavigate("editor")
+        }
+    }
+
+    val pickPhotosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.createProjectFromMedia(
+                context = context,
+                videoUris = emptyList(),
+                photoUris = uris,
+                audioUris = emptyList(),
+                projectName = "Photo Story"
+            )
+            onNavigate("editor")
+        }
+    }
+
+    val pickAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.createProjectFromMedia(
+                context = context,
+                videoUris = emptyList(),
+                photoUris = emptyList(),
+                audioUris = uris,
+                projectName = "Audio Project"
+            )
+            onNavigate("editor")
+        }
+    }
+
+    val pickSingleAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.createProjectFromMedia(
+                context = context,
+                videoUris = emptyList(),
+                photoUris = emptyList(),
+                audioUris = listOf(uri),
+                projectName = "Audio Project"
+            )
+            onNavigate("editor")
+        }
+    }
+
     val allProjects by viewModel.allProjects.collectAsState()
     val commandQuery by viewModel.commandBarQuery.collectAsState()
     val isExecutingCommand by viewModel.isExecutingCommand.collectAsState()
@@ -269,39 +356,113 @@ fun HomeScreen(
                 }
             }
 
-            // 2. New Project Hero Button
+            // 2. New Project Hero Button & Media Selectors
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(84.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            Brush.horizontalGradient(listOf(Color(0xFF7C4DFF), Color(0xFF2575FC)))
-                        )
-                        .clickable {
-                            viewModel.createNewProject()
-                            onNavigate("editor")
-                        }
-                        .testTag("new_project_hero_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(84.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.horizontalGradient(listOf(Color(0xFF7C4DFF), Color(0xFF2575FC)))
+                            )
+                            .clickable {
+                                showImportDialog = true
+                            }
+                            .testTag("new_project_hero_button"),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                            }
+                            Column(modifier = Modifier.padding(start = 16.dp)) {
+                                Text(text = "NEW PROJECT", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                                Text(text = "Import video, photo or audio from phone", color = Color(0xEEFFFFFF), fontSize = 12.sp)
+                            }
                         }
-                        Column(modifier = Modifier.padding(start = 16.dp)) {
-                            Text(text = "New Project", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                            Text(text = "Multi-layer video, audio & AI timeline editor", color = Color(0xEEFFFFFF), fontSize = 12.sp)
+                    }
+
+                    // Direct Quick Media Selectors (Requirement: Select Video, Select Photos, Select Audio)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Select Video
+                        Surface(
+                            color = Color(0xFF161A29),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    pickVideosLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                                    )
+                                }
+                                .testTag("select_video_quick_button")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF7C4DFF), modifier = Modifier.size(24.dp))
+                                Text("Select Video", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+
+                        // Select Photos
+                        Surface(
+                            color = Color(0xFF161A29),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    pickPhotosLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                                .testTag("select_photos_quick_button")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null, tint = Color(0xFF00ADB5), modifier = Modifier.size(24.dp))
+                                Text("Select Photos", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+
+                        // Select Audio
+                        Surface(
+                            color = Color(0xFF161A29),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    pickAudioLauncher.launch(arrayOf("audio/*"))
+                                }
+                                .testTag("select_audio_quick_button")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
+                                Text("Select Audio", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                            }
                         }
                     }
                 }
@@ -413,6 +574,165 @@ fun HomeScreen(
 
             item {
                 Spacer(modifier = Modifier.height(30.dp))
+            }
+        }
+
+        if (showImportDialog) {
+            ModalBottomSheet(
+                onDismissRequest = { showImportDialog = false },
+                containerColor = Color(0xFF141724),
+                dragHandle = {
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = 12.dp)
+                            .size(width = 40.dp, height = 4.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF454D6B))
+                    )
+                }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Create New Project",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Select media from your phone to start editing on the multi-layer timeline",
+                        color = Color(0xFFA0A5B5),
+                        fontSize = 13.sp
+                    )
+
+                    // 1. Select Video
+                    Surface(
+                        color = Color(0xFF1E2235),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showImportDialog = false
+                                pickVideosLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                                )
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF7C4DFF).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF7C4DFF), modifier = Modifier.size(26.dp))
+                            }
+                            Column(modifier = Modifier.padding(start = 14.dp)) {
+                                Text("Select Video(s)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Import 1 or multiple videos from phone gallery", color = Color(0xFFA0A5B5), fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // 2. Select Photos
+                    Surface(
+                        color = Color(0xFF1E2235),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showImportDialog = false
+                                pickPhotosLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF00ADB5).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null, tint = Color(0xFF00ADB5), modifier = Modifier.size(26.dp))
+                            }
+                            Column(modifier = Modifier.padding(start = 14.dp)) {
+                                Text("Select Photo(s)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Create photo slideshow or video story", color = Color(0xFFA0A5B5), fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // 3. Select Audio
+                    Surface(
+                        color = Color(0xFF1E2235),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C324B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showImportDialog = false
+                                pickAudioLauncher.launch(arrayOf("audio/*"))
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF00E5FF).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(26.dp))
+                            }
+                            Column(modifier = Modifier.padding(start = 14.dp)) {
+                                Text("Select Audio / Music", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("Import background music or voice tracks", color = Color(0xFFA0A5B5), fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // 4. Blank Project
+                    Surface(
+                        color = Color(0xFF161A26),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showImportDialog = false
+                                viewModel.createNewProject("Untitled Project")
+                                onNavigate("editor")
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFFA0A5B5), modifier = Modifier.size(22.dp))
+                            Text("Blank Timeline Project (Empty Canvas)", color = Color(0xFFA0A5B5), fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
             }
         }
     }

@@ -243,16 +243,31 @@ fun AIVideoScreen(
 
                     is AIResult.Error -> {
                         Surface(
-                            color = Color(0xFF2D1822),
-                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF221727),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4A254B)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = state.message,
-                                color = Color(0xFFFF5252),
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(14.dp)
-                            )
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = if (state.isNotConfigured) "⚠️ AI Service Not Configured" else "Generation Error",
+                                    color = Color(0xFFFF7675),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = state.message,
+                                    color = Color(0xFFDFE6E9),
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
+                                Text(
+                                    text = "To enable cloud AI generation:\n1. Open Google AI Studio\n2. Open Secrets Panel\n3. Add 'GEMINI_API_KEY' with your Google Gemini API key\n4. Or enter key in App Settings",
+                                    color = Color(0xFFA0A5B5),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
                         }
                     }
 

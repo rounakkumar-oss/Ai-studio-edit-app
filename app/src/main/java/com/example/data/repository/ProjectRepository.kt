@@ -83,12 +83,19 @@ class ProjectRepository(private val projectDao: ProjectDao) {
                 clipObj.put("startMs", clip.startMs)
                 clipObj.put("durationMs", clip.durationMs)
                 clipObj.put("sourceDurationMs", clip.sourceDurationMs)
+                clipObj.put("trimStartMs", clip.trimStartMs)
+                clipObj.put("trimEndMs", clip.trimEndMs)
                 clipObj.put("speed", clip.speed.toDouble())
                 clipObj.put("volume", clip.volume.toDouble())
                 clipObj.put("isMuted", clip.isMuted)
                 clipObj.put("opacity", clip.opacity.toDouble())
                 clipObj.put("scale", clip.scale.toDouble())
                 clipObj.put("rotation", clip.rotation.toDouble())
+                clipObj.put("isFlipHorizontal", clip.isFlipHorizontal)
+                clipObj.put("isFlipVertical", clip.isFlipVertical)
+                clipObj.put("isFrozen", clip.isFrozen)
+                clipObj.put("cropRatio", clip.cropRatio)
+                clip.mediaUri?.let { clipObj.put("mediaUri", it) }
                 clipObj.put("transitionIn", clip.transitionIn)
                 clipObj.put("transitionDurationMs", clip.transitionDurationMs)
                 clipObj.put("activeEffect", clip.activeEffect)
@@ -212,12 +219,19 @@ class ProjectRepository(private val projectDao: ProjectDao) {
                             startMs = cObj.optLong("startMs", 0L),
                             durationMs = cObj.optLong("durationMs", 3000L),
                             sourceDurationMs = cObj.optLong("sourceDurationMs", 5000L),
+                            trimStartMs = cObj.optLong("trimStartMs", 0L),
+                            trimEndMs = cObj.optLong("trimEndMs", cObj.optLong("sourceDurationMs", 5000L)),
                             speed = cObj.optDouble("speed", 1.0).toFloat(),
                             volume = cObj.optDouble("volume", 1.0).toFloat(),
                             isMuted = cObj.optBoolean("isMuted", false),
                             opacity = cObj.optDouble("opacity", 1.0).toFloat(),
                             scale = cObj.optDouble("scale", 1.0).toFloat(),
                             rotation = cObj.optDouble("rotation", 0.0).toFloat(),
+                            isFlipHorizontal = cObj.optBoolean("isFlipHorizontal", false),
+                            isFlipVertical = cObj.optBoolean("isFlipVertical", false),
+                            isFrozen = cObj.optBoolean("isFrozen", false),
+                            cropRatio = cObj.optString("cropRatio", "Fit"),
+                            mediaUri = if (cObj.has("mediaUri")) cObj.getString("mediaUri") else null,
                             transitionIn = cObj.optString("transitionIn", "None"),
                             transitionDurationMs = cObj.optLong("transitionDurationMs", 500L),
                             activeEffect = cObj.optString("activeEffect", "None"),

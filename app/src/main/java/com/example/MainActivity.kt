@@ -90,7 +90,8 @@ fun AIStudioAppRoot(viewModel: StudioViewModel = viewModel()) {
         )
         "editor" -> VideoEditorScreen(
             viewModel = viewModel,
-            onNavigateBack = popBack
+            onNavigateBack = popBack,
+            onNavigate = navigateTo
         )
         "ai_video" -> AIVideoScreen(
             viewModel = viewModel,

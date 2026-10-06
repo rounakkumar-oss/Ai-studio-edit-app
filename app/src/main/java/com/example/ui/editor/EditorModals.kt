@@ -397,3 +397,325 @@ fun SliderControlItem(
         colors = SliderDefaults.colors(thumbColor = Color(0xFF7C4DFF), activeTrackColor = Color(0xFF7C4DFF))
     )
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SpeedModal(
+    currentSpeed: Float,
+    onDismiss: () -> Unit,
+    onApplySpeed: (Float) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var speed by remember { mutableFloatStateOf(currentSpeed) }
+    val presets = listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141724)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Playback Speed", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(text = "${String.format(java.util.Locale.US, "%.2f", speed)}x", color = Color(0xFF00E5FF), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 16.dp)
+            ) {
+                items(presets) { p ->
+                    val isSelected = (speed - p).let { it > -0.05f && it < 0.05f }
+                    Surface(
+                        color = if (isSelected) Color(0xFF7C4DFF) else Color(0xFF222638),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.clickable { speed = p }
+                    ) {
+                        Text(
+                            text = "${p}x",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            Slider(
+                value = speed,
+                onValueChange = { speed = it },
+                valueRange = 0.2f..3.0f,
+                colors = SliderDefaults.colors(thumbColor = Color(0xFF7C4DFF), activeTrackColor = Color(0xFF7C4DFF))
+            )
+
+            Button(
+                onClick = {
+                    onApplySpeed(speed)
+                    onDismiss()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C4DFF))
+            ) {
+                Text("Apply Speed", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VolumeModal(
+    currentVolume: Float,
+    isMuted: Boolean,
+    onDismiss: () -> Unit,
+    onApplyVolume: (Float) -> Unit,
+    onToggleMute: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var volume by remember { mutableFloatStateOf(currentVolume) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141724)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Clip Volume", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(text = if (isMuted) "MUTED" else "${(volume * 100).toInt()}%", color = if (isMuted) Color(0xFFFF5252) else Color(0xFF00E5FF), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Slider(
+                value = volume,
+                onValueChange = { volume = it },
+                valueRange = 0.0f..2.0f,
+                colors = SliderDefaults.colors(thumbColor = Color(0xFF00ADB5), activeTrackColor = Color(0xFF00ADB5)),
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onToggleMute,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (isMuted) Color(0xFF2ED573) else Color(0xFFFF5252))
+                ) {
+                    Text(if (isMuted) "Unmute" else "Mute Clip", fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        onApplyVolume(volume)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C4DFF))
+                ) {
+                    Text("Apply Volume", fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CropAspectModal(
+    onDismiss: () -> Unit,
+    onSelectRatio: (String) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val ratios = listOf("Original", "9:16 (Reels/TikTok)", "16:9 (YouTube)", "1:1 (Square)", "4:5 (Instagram)", "21:9 (Cinematic)")
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141724)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Text(text = "Crop & Aspect Ratio", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ratios.forEach { r ->
+                Surface(
+                    color = Color(0xFF1E2235),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable {
+                            onSelectRatio(r.substringBefore(" "))
+                            onDismiss()
+                        }
+                ) {
+                    Text(text = r, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(14.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioToolsModal(
+    onDismiss: () -> Unit,
+    onAddMusic: () -> Unit,
+    onAddVoiceover: () -> Unit,
+    onExtractAudio: () -> Unit,
+    onOpenAiMusic: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141724)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(text = "Audio & Sound Tools", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+            Surface(
+                color = Color(0xFF1E2235),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().clickable { onDismiss(); onAddMusic() }
+            ) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("🎵", fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                    Column {
+                        Text("Add Music from Phone", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Import MP3/WAV tracks from storage", color = Color(0xFFA0A5B5), fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Surface(
+                color = Color(0xFF1E2235),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().clickable { onDismiss(); onOpenAiMusic() }
+            ) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("✨", fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                    Column {
+                        Text("AI Music Generator", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Generate beat-matched BGM and lo-fi tracks", color = Color(0xFFA0A5B5), fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Surface(
+                color = Color(0xFF1E2235),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().clickable { onDismiss(); onAddVoiceover() }
+            ) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("🎙️", fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                    Column {
+                        Text("AI Voice-Over (TTS)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Type script in Hindi/English for natural voice", color = Color(0xFFA0A5B5), fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Surface(
+                color = Color(0xFF1E2235),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().clickable { onDismiss(); onExtractAudio() }
+            ) {
+                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("✂️", fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                    Column {
+                        Text("Extract Audio from Video", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Separate video soundtrack to editable track", color = Color(0xFFA0A5B5), fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AiToolsModal(
+    onDismiss: () -> Unit,
+    onNavigate: (String) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF141724)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(text = "AI Studio Creation Tools", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+            val tools = listOf(
+                Triple("ai_video", "AI Video Generator", "Text-to-Video & prompt scenes"),
+                Triple("ai_voice", "AI Voice & Text-to-Speech", "100+ voices, Hindi & multi-lingual"),
+                Triple("ai_music", "AI Music Generator", "Beat synthesis & soundtrack creation"),
+                Triple("captions", "Auto Captions & Subtitles", "Speech recognition & transcript burn-in"),
+                Triple("ai_director", "AI Director & Storyboard", "Auto script-to-video arrangement")
+            )
+
+            tools.forEach { (route, title, desc) ->
+                Surface(
+                    color = Color(0xFF1E2235),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { onDismiss(); onNavigate(route) }
+                ) {
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("✨", fontSize = 22.sp, modifier = Modifier.padding(end = 12.dp))
+                        Column {
+                            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(desc, color = Color(0xFFA0A5B5), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+

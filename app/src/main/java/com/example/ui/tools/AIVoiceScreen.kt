@@ -283,16 +283,38 @@ fun AIVoiceScreen(
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
 
-                                Button(
-                                    onClick = { viewModel.importGeneratedVoiceToTimeline(voice) },
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(top = 12.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color.Black, modifier = Modifier.padding(end = 6.dp))
-                                    Text("Add to Project Audio Track", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Button(
+                                        onClick = {
+                                            viewModel.ttsEngine.speakPreview(
+                                                text = voice.text,
+                                                language = voice.language,
+                                                speed = speed,
+                                                pitch = pitch
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E344D))
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.padding(end = 4.dp))
+                                        Text("Play", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { viewModel.importGeneratedVoiceToTimeline(voice) },
+                                        modifier = Modifier.weight(1.8f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                    ) {
+                                        Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color.Black, modifier = Modifier.padding(end = 6.dp))
+                                        Text("Add to Project", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

@@ -1,7 +1,14 @@
 package com.example.ui.editor
 
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
+import android.media.PlaybackParams
+import android.net.Uri
+import android.view.Surface
+import android.view.TextureView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,13 +31,14 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,19 +48,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import coil.compose.AsyncImage
 import com.example.data.model.AspectRatioType
 import com.example.data.model.Project
+import com.example.data.model.TimelineClip
 import com.example.data.model.TrackType
-import kotlin.math.sin
+import java.util.Locale
 
 @Composable
 fun VideoPreviewPlayer(
@@ -63,29 +74,187 @@ fun VideoPreviewPlayer(
     onStepFrame: (Boolean) -> Unit,
     onToggleMute: () -> Unit,
     isMuted: Boolean,
+    onImportMediaClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val aspect = project?.aspectRatio ?: AspectRatioType.PORTRAIT_9_16
     val ratio = aspect.ratioWidth / aspect.ratioHeight
 
     var zoomScale by remember { mutableFloatStateOf(1.0f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // Find currently active clips at playhead
-    val activeVideoClips = remember(project, playheadMs) {
+    // Find currently active video / overlay clip at playhead
+    val activeVideoClip = remember(project, playheadMs) {
         project?.tracks
             ?.filter { it.type == TrackType.VIDEO || it.type == TrackType.OVERLAY }
-            ?.flatMap { track ->
-                track.clips.filter { playheadMs >= it.startMs && playheadMs < (it.startMs + it.durationMs) }
-            } ?: emptyList()
+            ?.flatMap { it.clips }
+            ?.find { playheadMs >= it.startMs && playheadMs < (it.startMs + it.durationMs) }
     }
 
+    // Active text clips
     val activeTextClips = remember(project, playheadMs) {
         project?.tracks
             ?.filter { it.type == TrackType.TEXT }
-            ?.flatMap { track ->
-                track.clips.filter { playheadMs >= it.startMs && playheadMs < (it.startMs + it.durationMs) }
-            } ?: emptyList()
+            ?.flatMap { it.clips }
+            ?.filter { playheadMs >= it.startMs && playheadMs < (it.startMs + it.durationMs) }
+            ?: emptyList()
+    }
+
+    // Active audio clip at playhead
+    val activeAudioClip = remember(project, playheadMs) {
+        project?.tracks
+            ?.filter { it.type == TrackType.AUDIO }
+            ?.flatMap { it.clips }
+            ?.find { playheadMs >= it.startMs && playheadMs < (it.startMs + it.durationMs) }
+    }
+
+    // MediaPlayer state
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var audioPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var currentLoadedUri by remember { mutableStateOf<String?>(null) }
+    var currentLoadedAudioUri by remember { mutableStateOf<String?>(null) }
+    var textureSurface by remember { mutableStateOf<Surface?>(null) }
+    var isPlayerPrepared by remember { mutableStateOf(false) }
+    var isAudioPlayerPrepared by remember { mutableStateOf(false) }
+
+    // Manage MediaPlayer lifecycle
+    DisposableEffect(Unit) {
+        val player = MediaPlayer()
+        val aPlayer = MediaPlayer()
+        mediaPlayer = player
+        audioPlayer = aPlayer
+        onDispose {
+            try {
+                player.stop()
+                player.reset()
+                player.release()
+            } catch (_: Exception) {}
+            try {
+                aPlayer.stop()
+                aPlayer.reset()
+                aPlayer.release()
+            } catch (_: Exception) {}
+            mediaPlayer = null
+            audioPlayer = null
+            textureSurface?.release()
+        }
+    }
+
+    // Synchronize media loading for video
+    val targetUri = activeVideoClip?.mediaUri
+    LaunchedEffect(targetUri, textureSurface) {
+        val player = mediaPlayer ?: return@LaunchedEffect
+        val surface = textureSurface
+
+        if (targetUri != null && targetUri != currentLoadedUri && surface != null) {
+            try {
+                isPlayerPrepared = false
+                player.reset()
+                player.setSurface(surface)
+                player.setDataSource(context, Uri.parse(targetUri))
+                player.setOnPreparedListener {
+                    isPlayerPrepared = true
+                    currentLoadedUri = targetUri
+                    // Seek to initial offset
+                    val clipOffset = (playheadMs - (activeVideoClip?.startMs ?: 0L) + (activeVideoClip?.trimStartMs ?: 0L)).coerceAtLeast(0L)
+                    player.seekTo(clipOffset.toInt())
+                    if (isPlaying) {
+                        player.start()
+                    }
+                }
+                player.prepareAsync()
+            } catch (e: Exception) {
+                isPlayerPrepared = false
+            }
+        } else if (targetUri == null && currentLoadedUri != null) {
+            try {
+                player.pause()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Synchronize media loading for audio track
+    val targetAudioUri = activeAudioClip?.mediaUri
+    LaunchedEffect(targetAudioUri) {
+        val aPlayer = audioPlayer ?: return@LaunchedEffect
+        if (targetAudioUri != null && targetAudioUri != currentLoadedAudioUri) {
+            try {
+                isAudioPlayerPrepared = false
+                aPlayer.reset()
+                aPlayer.setDataSource(context, Uri.parse(targetAudioUri))
+                aPlayer.setOnPreparedListener {
+                    isAudioPlayerPrepared = true
+                    currentLoadedAudioUri = targetAudioUri
+                    val offset = (playheadMs - (activeAudioClip?.startMs ?: 0L) + (activeAudioClip?.trimStartMs ?: 0L)).coerceAtLeast(0L)
+                    aPlayer.seekTo(offset.toInt())
+                    if (isPlaying) aPlayer.start()
+                }
+                aPlayer.prepareAsync()
+            } catch (_: Exception) {
+                isAudioPlayerPrepared = false
+            }
+        } else if (targetAudioUri == null && currentLoadedAudioUri != null) {
+            try { aPlayer.pause() } catch (_: Exception) {}
+        }
+    }
+
+    // Synchronize audio track playback and volume
+    LaunchedEffect(playheadMs, isPlaying, isMuted, activeAudioClip, isAudioPlayerPrepared) {
+        val aPlayer = audioPlayer ?: return@LaunchedEffect
+        if (!isAudioPlayerPrepared) return@LaunchedEffect
+        val clip = activeAudioClip ?: run {
+            try { if (aPlayer.isPlaying) aPlayer.pause() } catch (_: Exception) {}
+            return@LaunchedEffect
+        }
+        val offset = ((playheadMs - clip.startMs) * clip.speed + clip.trimStartMs).toLong().coerceAtLeast(0L)
+        try {
+            val vol = if (isMuted || clip.isMuted) 0f else clip.volume.coerceIn(0f, 2f)
+            aPlayer.setVolume(vol, vol)
+            if (isPlaying) {
+                if (!aPlayer.isPlaying) {
+                    aPlayer.seekTo(offset.toInt())
+                    aPlayer.start()
+                }
+            } else {
+                if (aPlayer.isPlaying) aPlayer.pause()
+                aPlayer.seekTo(offset.toInt())
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Synchronize playhead seeking and playback
+    LaunchedEffect(playheadMs, isPlaying, isMuted, activeVideoClip) {
+        val player = mediaPlayer ?: return@LaunchedEffect
+        if (!isPlayerPrepared) return@LaunchedEffect
+
+        val clip = activeVideoClip ?: return@LaunchedEffect
+        val clipOffset = ((playheadMs - clip.startMs) * clip.speed + clip.trimStartMs).toLong().coerceAtLeast(0L)
+
+        try {
+            // Apply volume / mute
+            val vol = if (isMuted || clip.isMuted) 0f else clip.volume.coerceIn(0f, 2f)
+            player.setVolume(vol, vol)
+
+            // Apply playback speed
+            try {
+                val params = PlaybackParams().setSpeed(clip.speed.coerceIn(0.2f, 5.0f))
+                player.playbackParams = params
+            } catch (_: Exception) {}
+
+            // Sync play / pause
+            if (isPlaying) {
+                if (!player.isPlaying) {
+                    player.seekTo(clipOffset.toInt())
+                    player.start()
+                }
+            } else {
+                if (player.isPlaying) {
+                    player.pause()
+                }
+                player.seekTo(clipOffset.toInt())
+            }
+        } catch (_: Exception) {}
     }
 
     Column(
@@ -102,9 +271,6 @@ fun VideoPreviewPlayer(
                 .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            val maxH = maxHeight
-            val maxW = maxWidth
-
             Box(
                 modifier = Modifier
                     .widthIn(max = 500.dp)
@@ -120,235 +286,233 @@ fun VideoPreviewPlayer(
                     .testTag("preview_player_viewport"),
                 contentAlignment = Alignment.Center
             ) {
-                // Multi-layer Video Frame Rendering Canvas
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
-
-                    // 1. Base Studio Canvas
-                    drawRect(Color(0xFF161822))
-
-                    // 2. Active Video Clips rendering
-                    if (activeVideoClips.isNotEmpty()) {
-                        activeVideoClips.forEach { clip ->
-                            val baseColor = Color(clip.previewColorHex)
-                            val cg = clip.colorGrading
-
-                            // Color grade tint
-                            val adjustedColor = when (cg.lutFilter) {
-                                "Teal & Orange" -> Color(0xFF00ADB5)
-                                "Cyberpunk" -> Color(0xFFE056FD)
-                                "Film Noir" -> Color(0xFF888888)
-                                "Warm Sunset" -> Color(0xFFFF7675)
-                                "Retro VHS" -> Color(0xFFFDCB6E)
-                                else -> baseColor
-                            }
-
-                            // Dynamic movement simulation based on playhead
-                            val progress = ((playheadMs - clip.startMs).toFloat() / clip.durationMs.toFloat()).coerceIn(0f, 1f)
-                            val pulse = (sin((playheadMs / 180.0)).toFloat() * 0.05f) * clip.scale
-
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    listOf(
-                                        adjustedColor.copy(alpha = clip.opacity * (1f + cg.brightness.coerceIn(-0.3f, 0.3f))),
-                                        Color(0xFF0A0B10)
-                                    )
-                                )
-                            )
-
-                            // Active effect overlays
-                            when {
-                                clip.activeEffect.contains("Glitch", ignoreCase = true) -> {
-                                    val glitchOffset = (sin(playheadMs.toDouble()) * 20f).toFloat()
-                                    drawRect(
-                                        color = Color(0x3300FFFF),
-                                        topLeft = Offset(glitchOffset, 0f),
-                                        size = Size(w, h)
-                                    )
-                                    drawRect(
-                                        color = Color(0x33FF0055),
-                                        topLeft = Offset(-glitchOffset, 0f),
-                                        size = Size(w, h)
-                                    )
-                                }
-                                clip.activeEffect.contains("Glow", ignoreCase = true) || clip.activeEffect.contains("Light", ignoreCase = true) -> {
-                                    drawCircle(
-                                        brush = Brush.radialGradient(
-                                            listOf(Color(0x66FFEA00), Color.Transparent),
-                                            center = Offset(w * 0.5f, h * 0.3f),
-                                            radius = w * 0.6f
-                                        )
-                                    )
-                                }
-                                clip.activeEffect.contains("Film", ignoreCase = true) || clip.activeEffect.contains("VHS", ignoreCase = true) -> {
-                                    // Scanlines
-                                    for (y in 0 until h.toInt() step 12) {
-                                        drawLine(
-                                            color = Color(0x22FFFFFF),
-                                            start = Offset(0f, y.toFloat()),
-                                            end = Offset(w, y.toFloat()),
-                                            strokeWidth = 1f
-                                        )
+                // If there's an active video clip with real mediaUri
+                if (activeVideoClip?.mediaUri != null && activeVideoClip.type == TrackType.VIDEO) {
+                    AndroidView(
+                        factory = { ctx ->
+                            TextureView(ctx).apply {
+                                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                                        val s = Surface(st)
+                                        textureSurface = s
+                                        mediaPlayer?.setSurface(s)
                                     }
+                                    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+                                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                                        textureSurface?.release()
+                                        textureSurface = null
+                                        mediaPlayer?.setSurface(null)
+                                        return true
+                                    }
+                                    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
                                 }
                             }
-
-                            // Subtle Vignette if configured
-                            if (cg.vignette > 0f) {
-                                drawRect(
-                                    brush = Brush.radialGradient(
-                                        listOf(Color.Transparent, Color(0xCC000000)),
-                                        center = Offset(w * 0.5f, h * 0.5f),
-                                        radius = w * 0.7f
-                                    )
-                                )
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                rotationZ = activeVideoClip.rotation
+                                scaleX = activeVideoClip.scale * (if (activeVideoClip.isFlipHorizontal) -1f else 1f) * zoomScale
+                                scaleY = activeVideoClip.scale * (if (activeVideoClip.isFlipVertical) -1f else 1f) * zoomScale
+                                translationX = panOffset.x
+                                translationY = panOffset.y
+                                alpha = activeVideoClip.opacity
                             }
+                    )
+                } else if (activeVideoClip?.mediaUri != null) {
+                    // Photo / Image clip with mediaUri
+                    AsyncImage(
+                        model = activeVideoClip.mediaUri,
+                        contentDescription = activeVideoClip.title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                rotationZ = activeVideoClip.rotation
+                                scaleX = activeVideoClip.scale * (if (activeVideoClip.isFlipHorizontal) -1f else 1f) * zoomScale
+                                scaleY = activeVideoClip.scale * (if (activeVideoClip.isFlipVertical) -1f else 1f) * zoomScale
+                                translationX = panOffset.x
+                                translationY = panOffset.y
+                                alpha = activeVideoClip.opacity
+                            }
+                    )
+                } else {
+                    // Empty or generator canvas placeholder
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawRect(Color(0xFF131522))
+                    }
 
-                            // Film strip grid frame decoration
-                            drawRect(
-                                color = Color(0x22FFFFFF),
-                                style = Stroke(width = 2.dp.toPx())
-                            )
-                        }
-                    } else {
-                        // Empty timeline guide
-                        drawCircle(
-                            color = Color(0x22FFFFFF),
-                            radius = 48.dp.toPx(),
-                            center = Offset(w * 0.5f, h * 0.5f),
-                            style = Stroke(width = 2.dp.toPx())
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Videocam,
+                            contentDescription = null,
+                            tint = Color(0xFF7C4DFF),
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Text(
+                            text = if (activeVideoClip != null) activeVideoClip.title else "No Clip at Playhead",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
                         )
                     }
                 }
 
-                // 3. Text Overlay Composables
-                if (activeTextClips.isNotEmpty()) {
-                    Column(
+                // Color Grade Overlay Tint
+                activeVideoClip?.colorGrading?.let { cg ->
+                    val overlayColor = when (cg.lutFilter) {
+                        "Teal & Orange" -> Color(0x3300ADB5)
+                        "Cyberpunk" -> Color(0x33E056FD)
+                        "Film Noir" -> Color(0x66000000)
+                        "Warm Sunset" -> Color(0x33FF7675)
+                        "Retro VHS" -> Color(0x33FDCB6E)
+                        else -> Color.Transparent
+                    }
+                    if (overlayColor != Color.Transparent) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(overlayColor)
+                        )
+                    }
+                }
+
+                // Text & Animated Captions Layer
+                activeTextClips.forEach { textClip ->
+                    val style = textClip.textStyle
+                    val textStr = style?.text ?: textClip.title
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp, vertical = 32.dp),
+                        contentAlignment = Alignment.BottomCenter
                     ) {
-                        activeTextClips.forEach { clip ->
-                            clip.textStyle?.let { ts ->
-                                Surface(
-                                    color = Color(0x88000000),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = ts.text,
-                                        color = Color(ts.textColor),
-                                        fontSize = ts.fontSizeSp.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.65f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = textStr,
+                                color = Color(style?.textColor ?: 0xFFFFFFFF),
+                                fontSize = (style?.fontSizeSp ?: 20f).sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            )
                         }
                     }
                 }
 
-                // Aspect Ratio watermark badge
-                Surface(
-                    color = Color(0x66000000),
-                    shape = RoundedCornerShape(6.dp),
+                // Aspect Ratio indicator badge at top right
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
+                        .fillMaxSize()
+                        .padding(10.dp),
+                    contentAlignment = Alignment.TopEnd
                 ) {
-                    Text(
-                        text = aspect.label.substringBefore(" "),
-                        color = Color(0xCCFFFFFF),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = aspect.label.substringBefore(" "),
+                            color = Color(0xFFA0A5B5),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
 
-        // Transport Controls Row (Play, Pause, Step frame, Timestamp, Mute)
-        Row(
+        // Playback Transport Controls Bar
+        Surface(
+            color = Color(0xFF10121A),
+            shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
-            // Timestamp: 00:03:12 / 00:12:00
-            val currentSec = playheadMs / 1000
-            val currentMsRemainder = (playheadMs % 1000) / 10
-            val totalSec = (project?.durationMs ?: 0L) / 1000
-
-            Text(
-                text = String.format("%02d:%02d.%02d / %02d:00", currentSec / 60, currentSec % 60, currentMsRemainder, totalSec),
-                color = Color(0xFF00E5FF),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            // Transport Buttons
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = { onStepFrame(false) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .testTag("step_backward_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FastRewind,
-                        contentDescription = "Step Back 1 Frame",
-                        tint = Color.White
-                    )
-                }
-
-                IconButton(
-                    onClick = onPlayPauseToggle,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF7C4DFF))
-                        .testTag("play_pause_button")
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.White
-                    )
-                }
-
-                IconButton(
-                    onClick = { onStepFrame(true) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .testTag("step_forward_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FastForward,
-                        contentDescription = "Step Forward 1 Frame",
-                        tint = Color.White
-                    )
-                }
-            }
-
-            // Mute / Volume toggle
-            IconButton(
-                onClick = onToggleMute,
-                modifier = Modifier
-                    .size(38.dp)
-                    .testTag("mute_toggle_button")
-            ) {
-                Icon(
-                    imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = if (isMuted) "Unmute" else "Mute",
-                    tint = if (isMuted) Color(0xFFFF5252) else Color(0xFFA0A5B5)
+                // Playhead Timestamp
+                val totalMs = project?.durationMs ?: 0L
+                Text(
+                    text = "${formatTimecode(playheadMs)} / ${formatTimecode(totalMs)}",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
+
+                // Central transport buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Step back 1 frame (-33ms)
+                    IconButton(
+                        onClick = { onStepFrame(false) },
+                        modifier = Modifier.size(36.dp).testTag("step_backward_button")
+                    ) {
+                        Icon(Icons.Default.FastRewind, contentDescription = "Step -1 Frame", tint = Color(0xFFA0A5B5), modifier = Modifier.size(20.dp))
+                    }
+
+                    // Main Play/Pause Button
+                    IconButton(
+                        onClick = onPlayPauseToggle,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF7C4DFF))
+                            .testTag("play_pause_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    // Step forward 1 frame (+33ms)
+                    IconButton(
+                        onClick = { onStepFrame(true) },
+                        modifier = Modifier.size(36.dp).testTag("step_forward_button")
+                    ) {
+                        Icon(Icons.Default.FastForward, contentDescription = "Step +1 Frame", tint = Color(0xFFA0A5B5), modifier = Modifier.size(20.dp))
+                    }
+                }
+
+                // Volume / Mute toggle
+                IconButton(
+                    onClick = onToggleMute,
+                    modifier = Modifier.size(36.dp).testTag("mute_toggle_button")
+                ) {
+                    Icon(
+                        imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = "Mute",
+                        tint = if (isMuted) Color(0xFFFF5252) else Color(0xFFA0A5B5),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }
+}
+
+private fun formatTimecode(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val millisFraction = (ms % 1000) / 100
+    return String.format(Locale.US, "%02d:%02d.%d", minutes, seconds, millisFraction)
 }

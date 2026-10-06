@@ -41,7 +41,8 @@ data class GeneratedVideoResult(
     val prompt: String,
     val durationMs: Long,
     val colorHex: Long,
-    val thumbnailPlaceholder: String
+    val thumbnailPlaceholder: String,
+    val videoUri: String? = null
 )
 
 data class GeneratedVoiceResult(
@@ -50,7 +51,8 @@ data class GeneratedVoiceResult(
     val voiceName: String,
     val language: String,
     val audioDurationMs: Long,
-    val waveformPoints: List<Float>
+    val waveformPoints: List<Float>,
+    val audioUri: String? = null
 )
 
 data class GeneratedMusicResult(
@@ -60,7 +62,8 @@ data class GeneratedMusicResult(
     val mood: String,
     val bpm: Int,
     val durationMs: Long,
-    val stemAvailable: Boolean
+    val stemAvailable: Boolean,
+    val audioUri: String? = null
 )
 
 data class GeneratedImageResult(
@@ -68,7 +71,8 @@ data class GeneratedImageResult(
     val prompt: String,
     val style: String,
     val aspectRatio: String,
-    val colorThemeHex: Long
+    val colorThemeHex: Long,
+    val imageUri: String? = null
 )
 
 // Provider interfaces per requirement 37

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +63,8 @@ fun TimelineView(
     selectedClipId: String?,
     onSeekTo: (Long) -> Unit,
     onSelectClip: (clipId: String?, trackId: String?) -> Unit,
+    onTrimStart: (deltaMs: Long) -> Unit = {},
+    onTrimEnd: (deltaMs: Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (project == null) return
@@ -156,7 +160,9 @@ fun TimelineView(
                         track = track,
                         pxPerMs = pxPerMs,
                         selectedClipId = selectedClipId,
-                        onSelectClip = { clipId -> onSelectClip(clipId, track.id) }
+                        onSelectClip = { clipId -> onSelectClip(clipId, track.id) },
+                        onTrimStart = onTrimStart,
+                        onTrimEnd = onTrimEnd
                     )
                 }
             }
@@ -197,7 +203,12 @@ fun TimelineRuler(
             .fillMaxWidth()
             .height(28.dp)
             .background(Color(0xFF141724))
-            .clickable { /* Tap to seek */ }
+            .pointerInput(durationMs, pxPerMs) {
+                detectTapGestures { offset ->
+                    val seekMs = (offset.x / pxPerMs).toLong().coerceIn(0L, durationMs)
+                    onSeekTo(seekMs)
+                }
+            }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val h = size.height
@@ -244,7 +255,9 @@ fun TimelineTrackLane(
     track: TimelineTrack,
     pxPerMs: Float,
     selectedClipId: String?,
-    onSelectClip: (String) -> Unit
+    onSelectClip: (String) -> Unit,
+    onTrimStart: (deltaMs: Long) -> Unit,
+    onTrimEnd: (deltaMs: Long) -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -262,12 +275,15 @@ fun TimelineTrackLane(
             TimelineClipBlock(
                 clip = clip,
                 isSelected = isSelected,
+                pxPerMs = pxPerMs,
                 modifier = Modifier
                     .offset(x = startX)
                     .width(clipWidth)
                     .height(44.dp)
                     .padding(vertical = 4.dp),
-                onSelect = { onSelectClip(clip.id) }
+                onSelect = { onSelectClip(clip.id) },
+                onTrimStart = onTrimStart,
+                onTrimEnd = onTrimEnd
             )
         }
     }
@@ -277,7 +293,10 @@ fun TimelineTrackLane(
 fun TimelineClipBlock(
     clip: TimelineClip,
     isSelected: Boolean,
+    pxPerMs: Float,
     onSelect: () -> Unit,
+    onTrimStart: (deltaMs: Long) -> Unit,
+    onTrimEnd: (deltaMs: Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val blockColor = when (clip.type) {
@@ -354,6 +373,57 @@ fun TimelineClipBlock(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
+            }
+        }
+
+        // Interactive CapCut-style Trim Handles on Left and Right when selected
+        if (isSelected) {
+            // Left Trim Handle
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(14.dp)
+                    .fillMaxHeight()
+                    .background(Color.White.copy(alpha = 0.85f))
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta ->
+                            val deltaMs = (delta / pxPerMs).toLong()
+                            onTrimStart(deltaMs)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .height(14.dp)
+                        .background(Color.Black)
+                )
+            }
+
+            // Right Trim Handle
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(14.dp)
+                    .fillMaxHeight()
+                    .background(Color.White.copy(alpha = 0.85f))
+                    .draggable(
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta ->
+                            val deltaMs = (delta / pxPerMs).toLong()
+                            onTrimEnd(deltaMs)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(2.dp)
+                        .height(14.dp)
+                        .background(Color.Black)
+                )
             }
         }
     }

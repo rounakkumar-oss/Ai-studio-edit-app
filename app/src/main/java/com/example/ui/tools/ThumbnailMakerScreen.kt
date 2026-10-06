@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -309,18 +310,69 @@ fun ThumbnailMakerScreen(
 
             // Export Button
             item {
-                Button(
-                    onClick = {
-                        // Export PNG simulation
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C4DFF))
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Export High-Res 4K Thumbnail", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+                var isExporting by remember { mutableStateOf(false) }
+                var exportedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+                Column {
+                    Button(
+                        onClick = {
+                            isExporting = true
+                            coroutineScope.launch {
+                                val res = com.example.util.ThumbnailExporter.renderAndSaveThumbnail(
+                                    context = context,
+                                    title = titleText,
+                                    subtitle = subtitleText,
+                                    badge = selectedBadge,
+                                    startColor = selectedColorPreset.first,
+                                    endColor = selectedColorPreset.second,
+                                    is16By9 = selectedAspect.contains("16:9")
+                                )
+                                isExporting = false
+                                res.onSuccess { uri ->
+                                    exportedUri = uri
+                                    android.widget.Toast.makeText(context, "Thumbnail saved to Pictures/AIStudio!", android.widget.Toast.LENGTH_LONG).show()
+                                }.onFailure { err ->
+                                    android.widget.Toast.makeText(context, "Export error: ${err.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = !isExporting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C4DFF))
+                    ) {
+                        if (isExporting) {
+                            androidx.compose.material3.CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Save High-Res 4K Thumbnail to Device", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                    }
+
+                    if (exportedUri != null) {
+                        Button(
+                            onClick = {
+                                viewModel.importMediaAsClip(
+                                    title = "Thumbnail: $titleText",
+                                    uri = exportedUri!!,
+                                    type = com.example.data.model.TrackType.OVERLAY,
+                                    durationMs = 4000L
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                        ) {
+                            Text("Add to Video Editor Project", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 
