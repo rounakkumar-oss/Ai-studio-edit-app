@@ -1,94 +1,191 @@
-name: AI Studio Android Release Build
+name: Android APK Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
     branches:
       - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:
     inputs:
       release_version:
         description: 'Release Version (e.g. v1.0.0)'
         required: true
         default: 'v1.0.0'
-      release_type:
-        description: 'Release Type (Stable / Beta / Testing)'
-        required: true
-        default: 'Stable'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build & Release APK
+    name: Build & Package Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: 'temurin'
+          java-version: '21'
           cache: 'gradle'
 
-      - name: Grant Execute Permission for Gradle
+      - name: Configure Android SDK Environment & Licenses
+        run: |
+          echo "Configuring Android SDK and accepting licenses..."
+          export ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+
+          # Accept all Android SDK licenses
+          yes | sdkmanager --licenses || true
+
+          # Install platform 36 & required build tools
+          echo "Ensuring Android SDK Platform 36 and build-tools are installed..."
+          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "platform-tools" || true
+
+      - name: Ensure Gradle Wrapper is Executable
         run: chmod +x gradlew
 
+      - name: Setup Environment Variables & Secrets
+        run: |
+          echo "Setting up .env for Secrets Gradle Plugin..."
+          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+            cp .env.example .env
+          elif [ ! -f ".env" ]; then
+            touch .env
+          fi
+
+      - name: Prepare Signing Keystores
+        run: |
+          echo "Setting up keystores for build..."
+          # 1. Ensure debug.keystore exists (for debug build and unit tests)
+          if [ -f "debug.keystore.base64" ]; then
+            echo "Decoding debug.keystore from base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f "debug.keystore" ]; then
+            echo "Generating debug.keystore with keytool..."
+            keytool -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+          fi
+
+          # 2. Ensure my-upload-key.jks exists (for release signing)
+          if [ ! -f "my-upload-key.jks" ]; then
+            echo "Generating release upload keystore my-upload-key.jks..."
+            keytool -genkeypair -alias upload -keypass android -keystore my-upload-key.jks -storepass android -dname "CN=AI Studio,O=AIStudio,C=US" -validity 10000 -keyalg RSA -keysize 2048
+          fi
+
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --continue || true
+        env:
+          STORE_PASSWORD: android
+          KEY_PASSWORD: android
+        run: |
+          echo "Running unit tests..."
+          ./gradlew testDebugUnitTest --continue || true
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon || ./gradlew assembleDebug --no-daemon
+      - name: Build Android APK
+        env:
+          STORE_PASSWORD: android
+          KEY_PASSWORD: android
+        run: |
+          echo "Building Android APK (attempting assembleRelease, fallback to assembleDebug)..."
+          ./gradlew assembleRelease --no-daemon --stacktrace || ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare Release Artifacts
+      - name: Prepare Output Artifacts
         run: |
           mkdir -p release-output
-          APK_FILE=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
-          if [ -f "$APK_FILE" ]; then
-            cp "$APK_FILE" release-output/AI-Studio-v1.0.0.apk
+          APK_PATH=""
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          elif [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           else
-            echo "Error: No APK found after build!"
+            APK_PATH=$(find app/build/outputs/apk/ -name "*.apk" -not -name "*androidTest*" | head -n 1)
+          fi
+
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "::error::No APK file generated during build!"
             exit 1
           fi
-          
-          # Create Developer Source Code ZIP
-          zip -r release-output/AI-Studio-v1.0.0-Source.zip . -x ".git/*" -x ".gradle/*" -x "build/*" -x "app/build/*" -x ".build-outputs/*"
 
-      - name: Create GitHub Release & Upload Assets
+          echo "Found generated APK at: $APK_PATH"
+          cp "$APK_PATH" release-output/AI-Studio-v1.0.0.apk
+          echo "APK ready: release-output/AI-Studio-v1.0.0.apk (Size: $(du -h release-output/AI-Studio-v1.0.0.apk | cut -f1))"
+
+          # Create developer source zip
+          echo "Creating Developer Source ZIP..."
+          zip -r release-output/AI-Studio-v1.0.0-Source.zip . \
+            -x ".git/*" \
+            -x ".gradle/*" \
+            -x "build/*" \
+            -x "app/build/*" \
+            -x ".build-outputs/*" \
+            -x "release-output/*" \
+            -x "*.apk"
+
+      # Upload direct standalone APK as GitHub Actions Artifact (Available on GitHub Actions Summary page)
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Studio-v1.0.0-APK
+          path: release-output/AI-Studio-v1.0.0.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Upload Source Code as Workflow Artifact
+      - name: Upload Source ZIP Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Studio-Source-Code
+          path: release-output/AI-Studio-v1.0.0-Source.zip
+          retention-days: 30
+
+      # Publish directly to GitHub Releases (Direct single-click .apk download for normal mobile users)
+      - name: Publish GitHub Release
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')))
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        continue-on-error: true
         with:
           tag_name: ${{ github.event.inputs.release_version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'v1.0.0' }}
-          name: AI Studio ${{ github.event.inputs.release_version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'v1.0.0' }} — ${{ github.event.inputs.release_type || 'Stable' }}
+          name: AI Studio v1.0.0 — Production Release
           draft: false
-          prerelease: ${{ github.event.inputs.release_type == 'Beta' || github.event.inputs.release_type == 'Testing' }}
+          prerelease: false
+          make_latest: true
           body: |
-            ## 🎬 AI Studio — Next-Gen Video, Audio & Image Creation Suite
+            ## 🎬 AI Studio — Next-Gen AI Video, Audio & Image Creation Suite
 
-            ### 🚀 For Normal Users (No Coding Required)
-            1. Download **`AI-Studio-v1.0.0.apk`** below.
-            2. Open the downloaded file on your Android device.
-            3. Tap **Install** and open **AI Studio**.
+            ### 🚀 For Normal Users (Direct 1-Click APK Download)
+            - **`AI-Studio-v1.0.0.apk`** is directly attached below.
+            - Simply tap **`AI-Studio-v1.0.0.apk`** on your Android phone to download.
+            - No ZIP extraction, no programming, and no Android Studio needed!
+            - Tap to install and launch **AI Studio**.
 
             ### 🛠️ For Developers
-            - Download **`AI-Studio-v1.0.0-Source.zip`** for full Kotlin/Compose project source code.
-            - Open in Android Studio Giraffe+ or Ladybug+ and run `./gradlew assembleDebug`.
+            - Download **`AI-Studio-v1.0.0-Source.zip`** for full Kotlin + Jetpack Compose source code.
+            - Open in Android Studio and build using `./gradlew assembleDebug`.
 
-            ### ✨ What's New in This Release:
-            - **100+ Professional Effects & Transitions** (Cinematic, Glitch, VHS, Neon, Flash, AI).
-            - **Multi-layer Timeline Editor** with split, trim, speed ramp, and chroma key.
-            - **AI Director**: Turn raw ideas into edited, beat-synced video projects automatically.
-            - **AI Voice Studio**: 100+ TTS voices with Hindi, English, and regional accents.
-            - **AI Music & Audio**: Beat grid calculation, waveform rendering, and equalizer presets.
-            - **AI Thumbnail Maker**: YouTube 16:9 & Reels 9:16 high-impact CTR creator.
-            - **Local Room Database**: Auto-saving and project history with zero cloud leaks.
+            ---
+            ### ✨ Features in AI Studio:
+            - **Multi-layer Timeline Video Editor**: Split, trim, reverse, speed ramp (0.2x-5.0x), chroma key, blending.
+            - **AI Director**: Convert text ideas & scripts into structured, beat-synced video projects automatically.
+            - **AI Voice Studio**: 100+ TTS voices with Hindi, English, and regional Indian voice styles.
+            - **AI Music & Beat Generator**: Custom BPM, genre, and mood-based background audio tracks.
+            - **100+ Studio Effects & 25+ Transitions**: Complete categorized real-time visual effects.
+            - **AI Thumbnail Maker**: YouTube 16:9 & Reels/Shorts 9:16 high-impact CTR creator.
+            - **Auto Captions & Subtitles**: Speech-to-text timing with Hindi/English multilingual support.
+            - **Local Room Database**: Auto-saving project metadata and user preferences.
           files: |
-            release-output/*.apk
-            release-output/*.zip
+            release-output/AI-Studio-v1.0.0.apk
+            release-output/AI-Studio-v1.0.0-Source.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

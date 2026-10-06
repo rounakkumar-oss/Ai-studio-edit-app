@@ -1,15 +1,15 @@
 # 📥 DOWNLOAD LATEST APK
 
-### 👉 [**Download Latest APK (`AI-Studio-v1.0.0.apk`) from GitHub Releases**](https://github.com/aistudio-creator/ai-studio/releases/latest)
+### 👉 [**Download Latest APK (`AI-Studio-v1.0.0.apk`) from GitHub Releases**](https://github.com/rounakkumar-oss/Ai-studio-edit-app/releases/latest)
 
-- **APK** = Normal users install this directly on their Android device without programming knowledge or Android Studio.
+- **APK** = Normal users install this directly on their Android device without programming knowledge or Android Studio (No ZIP extraction needed).
 - **Source ZIP** = Developers use this to modify, explore, and build the project in Android Studio.
 
 ---
 
 # 🎬 AI Studio — Next-Gen AI Video, Image & Audio Creation Suite
 
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.0_Stable-7C4DFF?style=for-the-badge&logo=android)](https://github.com/aistudio-creator/ai-studio/releases/latest)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0_Stable-7C4DFF?style=for-the-badge&logo=android)](https://github.com/rounakkumar-oss/Ai-studio-edit-app/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Android_7.0+-00E5FF?style=for-the-badge&logo=android)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/Architecture-Kotlin_+_Jetpack_Compose-FF5370?style=for-the-badge&logo=kotlin)](https://developer.android.com/jetpack/compose)
 
@@ -23,11 +23,11 @@
 
 You do **NOT** need Android Studio, Kotlin, Gradle, or any programming knowledge.
 
-👉 [**⬇️ DOWNLOAD LATEST APK (AI-Studio-v1.0.0.apk)**](https://github.com/aistudio-creator/ai-studio/releases/latest)
+👉 [**⬇️ DOWNLOAD LATEST APK (AI-Studio-v1.0.0.apk)**](https://github.com/rounakkumar-oss/Ai-studio-edit-app/releases/latest)
 
 #### Simple 4-Step Installation:
-1. Open [**GitHub Releases**](https://github.com/aistudio-creator/ai-studio/releases/latest).
-2. Download **`AI-Studio-v1.0.0.apk`**.
+1. Open [**GitHub Releases**](https://github.com/rounakkumar-oss/Ai-studio-edit-app/releases/latest).
+2. Download **`AI-Studio-v1.0.0.apk`** directly.
 3. Tap the downloaded APK in your device notifications or Downloads folder.
 4. If Android prompts *"Install unknown apps"*, tap **Settings** and allow it, then tap **Install** and open **AI Studio**.
 
@@ -37,15 +37,15 @@ You do **NOT** need Android Studio, Kotlin, Gradle, or any programming knowledge
 
 Developers can download the complete source code or clone the repository to modify, build, or contribute.
 
-👉 [**📦 DOWNLOAD SOURCE CODE (AI-Studio-v1.0.0-Source.zip)**](https://github.com/aistudio-creator/ai-studio/releases/latest)
+👉 [**📦 DOWNLOAD SOURCE CODE (AI-Studio-v1.0.0-Source.zip)**](https://github.com/rounakkumar-oss/Ai-studio-edit-app/releases/latest)
 
 ```bash
 # Or clone via Git:
-git clone https://github.com/aistudio-creator/ai-studio.git
-cd ai-studio
+git clone https://github.com/rounakkumar-oss/Ai-studio-edit-app.git
+cd Ai-studio-edit-app
 
 # Build APK using Gradle:
-gradle assembleDebug
+./gradlew assembleDebug
 ```
 
 ---
