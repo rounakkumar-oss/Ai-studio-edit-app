@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Studio Video Frame / Clapperboard -->
+    <path
+        android:pathData="M34,37 C34,34.2 36.2,32 39,32 L69,32 C71.8,32 74,34.2 74,37 L74,71 C74,73.8 71.8,76 69,76 L39,76 C36.2,76 34,73.8 34,71 Z"
+        android:fillColor="#1F1D36"
+        android:strokeWidth="2.5"
+        android:strokeColor="#7C4DFF" />
+
+    <!-- Clapper diagonal stripes header -->
+    <path
+        android:pathData="M35,33 L73,33 L73,43 L35,43 Z"
+        android:fillColor="#7C4DFF" />
+    <path
+        android:pathData="M43,33 L40,43 M51,33 L48,43 M59,33 L56,43 M67,33 L64,43"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF" />
+
+    <!-- Play button in center -->
+    <path
+        android:pathData="M49,50 L49,64 L62,57 Z"
+        android:fillColor="#00E5FF" />
+
+    <!-- Glowing 4-point AI sparkle star (top right) -->
+    <path
+        android:pathData="M76,26 C76,30 80,30 80,30 C80,30 76,30 76,34 C76,30 72,30 72,30 C72,30 76,30 76,26 Z"
+        android:fillColor="#FFD700" />
+    <path
+        android:pathData="M32,68 C32,71 35,71 35,71 C35,71 32,71 32,74 C32,71 29,71 29,71 C29,71 32,71 32,68 Z"
+        android:fillColor="#FF77A9" />
+
+    <!-- Audio waveform indicator at bottom -->
+    <path
+        android:pathData="M42,70 L42,66 M46,71 L46,65 M50,72 L50,64 M54,71 L54,65 M58,72 L58,64 M62,71 L62,65 M66,70 L66,66"
+        android:strokeWidth="1.8"
+        android:strokeColor="#B388FF"
+        android:strokeLineCap="round" />
+</vector>

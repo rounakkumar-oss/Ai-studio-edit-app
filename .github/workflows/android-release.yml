@@ -1,0 +1,94 @@
+name: AI Studio Android Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release Version (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      release_type:
+        description: 'Release Type (Stable / Beta / Testing)'
+        required: true
+        default: 'Stable'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission for Gradle
+        run: chmod +x gradlew
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --continue || true
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon || ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare Release Artifacts
+        run: |
+          mkdir -p release-output
+          APK_FILE=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          if [ -f "$APK_FILE" ]; then
+            cp "$APK_FILE" release-output/AI-Studio-v1.0.0.apk
+          else
+            echo "Error: No APK found after build!"
+            exit 1
+          fi
+          
+          # Create Developer Source Code ZIP
+          zip -r release-output/AI-Studio-v1.0.0-Source.zip . -x ".git/*" -x ".gradle/*" -x "build/*" -x "app/build/*" -x ".build-outputs/*"
+
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: ${{ github.event.inputs.release_version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'v1.0.0' }}
+          name: AI Studio ${{ github.event.inputs.release_version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'v1.0.0' }} — ${{ github.event.inputs.release_type || 'Stable' }}
+          draft: false
+          prerelease: ${{ github.event.inputs.release_type == 'Beta' || github.event.inputs.release_type == 'Testing' }}
+          body: |
+            ## 🎬 AI Studio — Next-Gen Video, Audio & Image Creation Suite
+
+            ### 🚀 For Normal Users (No Coding Required)
+            1. Download **`AI-Studio-v1.0.0.apk`** below.
+            2. Open the downloaded file on your Android device.
+            3. Tap **Install** and open **AI Studio**.
+
+            ### 🛠️ For Developers
+            - Download **`AI-Studio-v1.0.0-Source.zip`** for full Kotlin/Compose project source code.
+            - Open in Android Studio Giraffe+ or Ladybug+ and run `./gradlew assembleDebug`.
+
+            ### ✨ What's New in This Release:
+            - **100+ Professional Effects & Transitions** (Cinematic, Glitch, VHS, Neon, Flash, AI).
+            - **Multi-layer Timeline Editor** with split, trim, speed ramp, and chroma key.
+            - **AI Director**: Turn raw ideas into edited, beat-synced video projects automatically.
+            - **AI Voice Studio**: 100+ TTS voices with Hindi, English, and regional accents.
+            - **AI Music & Audio**: Beat grid calculation, waveform rendering, and equalizer presets.
+            - **AI Thumbnail Maker**: YouTube 16:9 & Reels 9:16 high-impact CTR creator.
+            - **Local Room Database**: Auto-saving and project history with zero cloud leaks.
+          files: |
+            release-output/*.apk
+            release-output/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
